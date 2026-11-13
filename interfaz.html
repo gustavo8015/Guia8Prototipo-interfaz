@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0a0a0a">
+<title>Análisis distribuido de ventas</title>
+<style>
+:root{
+  color-scheme:dark;
+  --lienzo:#0a0a0a; --suave:#121212; --tarjeta:#1a1a1a; --elevada:#242424;
+  --linea:#2a2a2a; --linea-fuerte:#3a3a3a;
+  --acento:#faff69; --acento-activo:#e6eb52; --sobre-acento:#0a0a0a;
+  --tinta:#ffffff; --texto:#e6e6e6; --cuerpo:#cccccc; --tenue:#9a9a9a;
+  --ok:#22c55e; --error:#f87171; --aviso:#f59e0b;
+  --salida:cubic-bezier(.16,1,.3,1);
+}
+*{box-sizing:border-box}
+html{background:var(--lienzo)}
+body{margin:0;background:var(--lienzo);color:var(--cuerpo);font:16px/1.55 Inter,"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.salto{position:absolute;left:-999px;top:8px;background:var(--acento);color:var(--sobre-acento);padding:8px 14px;border-radius:8px;font-weight:600;z-index:10}
+.salto:focus{left:8px}
+:focus-visible{outline:2px solid var(--acento);outline-offset:3px}
+h1,h2{color:var(--tinta);margin:0;text-wrap:balance}
+
+.barra-sup{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;min-height:64px;padding:12px 32px}
+.barra-sup strong{color:var(--tinta);font-weight:700;letter-spacing:-.3px;font-size:18px}
+.barra-sup span{font-size:14px;color:var(--tenue)}
+
+main{max-width:1320px;margin:0 auto;padding:8px 32px 96px}
+.cabecera{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:32px;align-items:stretch;padding:24px 0 48px}
+.cabecera>*{min-width:0}
+h1{font-size:clamp(34px,4.4vw,56px);font-weight:700;line-height:1.08;letter-spacing:-2px}
+.entrada{font-size:17px;color:var(--cuerpo);margin:20px 0 28px;max-width:46ch}
+.entrada b{color:var(--tinta);font-weight:600}
+
+form{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+form .ancho{grid-column:1/-1}
+label{display:block;font-size:13px;font-weight:500;color:var(--texto);margin-bottom:6px}
+select{width:100%;min-height:44px;padding:10px 14px;font:inherit;font-size:15px;color:var(--tinta);background-color:var(--tarjeta);border:1px solid var(--linea-fuerte);border-radius:8px;transition:border-color .15s}
+select:hover{border-color:#5a5a5a}
+select:focus-visible{border-color:var(--acento);outline-offset:1px}
+.ayuda{font-size:13px;color:var(--tenue);margin-top:6px}
+.acciones{display:flex;gap:12px;flex-wrap:wrap}
+button{min-height:44px;padding:12px 20px;font:inherit;font-size:14px;font-weight:600;line-height:1;border-radius:8px;border:1px solid transparent;cursor:pointer;transition:background-color .15s,transform .12s var(--salida),border-color .15s,opacity .15s}
+button:active{transform:scale(.97)}
+.primario{background:var(--acento);color:var(--sobre-acento)}
+.primario:hover{background:var(--acento-activo)}
+.secundario{background:var(--tarjeta);color:var(--tinta);border-color:var(--linea-fuerte)}
+.secundario:hover{background:var(--elevada);border-color:#5a5a5a}
+button:disabled{opacity:.5;cursor:progress}
+#estado{min-height:24px;margin-top:16px;font-size:14px;color:var(--tenue)}
+#estado.error{color:var(--error);font-weight:600}
+
+.escenario{position:relative;background:var(--suave);border-radius:12px;min-height:440px;overflow:hidden}
+.escenario canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;touch-action:pan-y}
+.escenario canvas:active{cursor:grabbing}
+.fase{position:absolute;left:24px;right:24px;top:20px;font-size:16px;font-weight:600;color:var(--tinta);pointer-events:none;letter-spacing:-.2px}
+.fase small{display:block;font-size:13px;font-weight:400;color:var(--tenue);letter-spacing:0;margin-top:2px}
+.rotulos{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.rotulos span{position:absolute;left:0;top:0;font-size:12.5px;font-weight:500;color:var(--cuerpo);white-space:nowrap;will-change:transform}
+.rotulos span.fallo{color:var(--error);font-weight:700}
+.mandos{position:absolute;right:16px;bottom:16px;display:flex;gap:8px}
+.mandos button{min-height:40px;min-width:40px;padding:8px 14px;font-size:13px;background:var(--tarjeta);color:var(--tinta);border-color:var(--linea-fuerte)}
+.mandos button:hover{background:var(--elevada)}
+.sin3d{position:absolute;inset:0;display:none;align-items:center;justify-content:center;padding:32px;text-align:center;color:var(--tenue);font-size:14px}
+.escenario.plano canvas,.escenario.plano .rotulos,.escenario.plano .mandos{display:none}
+.escenario.plano .sin3d{display:flex}
+
+.cifras{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:32px;padding:16px 0 64px}
+.cifra .n{font-size:clamp(34px,4vw,56px);font-weight:700;line-height:1;letter-spacing:-1.5px;color:var(--acento);font-variant-numeric:tabular-nums}
+.cifra .n.neutra{color:var(--tinta)}
+.cifra .n.mal{color:var(--error)}
+.cifra .q{margin-top:10px;font-size:15px;font-weight:600;color:var(--tinta)}
+.cifra .d{font-size:13px;color:var(--tenue)}
+
+.rejilla{display:grid;gap:24px}
+.dos{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
+.panel{background:var(--tarjeta);border-radius:12px;padding:28px 32px;min-width:0}
+.panel h2{font-size:18px;font-weight:600;line-height:1.4;margin-bottom:18px}
+.pie{font-size:13px;color:var(--tenue);margin:16px 0 0}
+
+.desliza{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+th,td{padding:10px 8px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--linea)}
+th:first-child,td:first-child{text-align:left;padding-left:0}
+th:last-child,td:last-child{padding-right:0}
+th{font-size:13px;font-weight:500;color:var(--tenue)}
+td{color:var(--texto)}
+tbody tr{transition:background-color .15s}
+tbody tr:hover{background:var(--elevada)}
+tfoot td{color:var(--tinta);font-weight:700;border-bottom:0}
+
+ol.registro{list-style:none;margin:0;padding:0;display:grid;gap:10px;font-size:14px}
+ol.registro li{display:grid;grid-template-columns:10px 1fr;gap:12px;align-items:baseline;color:var(--texto);overflow-wrap:anywhere}
+ol.registro li::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--ok);transform:translateY(-1px)}
+ol.registro li.fallo{color:var(--error);font-weight:600}
+ol.registro li.fallo::before{background:var(--error)}
+
+.barras{display:grid;gap:12px}
+.fb{display:grid;grid-template-columns:minmax(96px,34%) 1fr 5.2em;gap:14px;align-items:center;font-size:14px}
+.fb .nom{color:var(--texto);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fb .via{height:10px;background:var(--elevada);border-radius:4px;overflow:hidden}
+.fb .via i{display:block;height:100%;background:var(--tinta);border-radius:4px;transform:scaleX(0);transform-origin:left center;transition:transform .9s var(--salida)}
+.fb:first-child .via i{background:var(--acento)}
+.fb .val{text-align:right;font-weight:600;color:var(--tinta);font-variant-numeric:tabular-nums}
+
+.columnas{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:10px;align-items:end;height:240px}
+.col{display:grid;grid-template-rows:auto 1fr auto;gap:8px;height:100%;text-align:center;min-width:0}
+.col .val{font-size:12.5px;font-weight:600;color:var(--tinta);font-variant-numeric:tabular-nums}
+.col .via{display:flex;align-items:flex-end;min-height:0}
+.col .via i{display:block;width:100%;background:var(--tinta);border-radius:4px 4px 0 0;transform:scaleY(0);transform-origin:center bottom;transition:transform .9s var(--salida)}
+.col.max .via i{background:var(--acento)}
+.col.max .val{color:var(--acento)}
+.col .nom{font-size:12.5px;color:var(--tenue)}
+
+.aparece{opacity:0;transform:translateY(22px)}
+.aparece.visto{opacity:1;transform:none;transition:opacity .6s var(--salida),transform .6s var(--salida)}
+.oculto{display:none}
+
+@media (max-width:960px){
+  .barra-sup{padding:12px 16px} main{padding:8px 16px 64px}
+  .cabecera{grid-template-columns:1fr;gap:24px;padding-bottom:32px}
+  .escenario{min-height:340px}
+  .cifras{grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;padding-bottom:40px}
+  .dos{grid-template-columns:1fr}
+  .panel{padding:22px 18px}
+  .columnas{gap:4px;height:200px}.col .val{font-size:10.5px}.col .nom{font-size:11px}
+}
+@media (max-width:420px){form{grid-template-columns:1fr}.fase{left:16px;right:16px;font-size:15px}}
+@media (prefers-reduced-motion:reduce){
+  .aparece,.aparece.visto{opacity:1;transform:none;transition:none}
+  .fb .via i,.col .via i{transition:none}
+  button:active{transform:none}
+}
+</style>
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<div class="barra-sup">
+  <strong>Ventas distribuidas</strong>
+  <span>Guía&nbsp;8 · Sistemas Distribuidos · UMB</span>
+</div>
+
+<main id="contenido">
+  <section class="cabecera">
+    <div>
+      <h1>Análisis distribuido de ventas</h1>
+      <p class="entrada">Divide un archivo de ventas en particiones, las procesa con procesos independientes y consolida los totales. <b>Es una simulación:</b> los nodos son procesos de este computador, no un clúster real.</p>
+      <form id="formulario">
+        <div>
+          <label for="registros">Registros de ventas</label>
+          <select id="registros" name="registros" autocomplete="off">
+            <option value="10000">10.000</option>
+            <option value="100000" selected>100.000</option>
+            <option value="500000">500.000</option>
+            <option value="2000000">2.000.000</option>
+          </select>
+        </div>
+        <div>
+          <label for="particiones">Particiones (procesos)</label>
+          <select id="particiones" name="particiones" autocomplete="off">
+            <option>2</option><option selected>4</option><option>6</option><option>8</option>
+          </select>
+        </div>
+        <div class="ancho">
+          <label for="fallar">Simular la caída de un proceso</label>
+          <select id="fallar" name="fallar" autocomplete="off"></select>
+          <div class="ayuda">El proceso elegido falla en el primer intento y el coordinador lo relanza.</div>
+        </div>
+        <div class="acciones ancho">
+          <button type="submit" class="primario" id="b-ejecutar">Ejecutar procesamiento</button>
+          <button type="button" class="secundario" id="b-rendimiento">Medir rendimiento</button>
+        </div>
+      </form>
+      <div id="estado" role="status" aria-live="polite"></div>
+    </div>
+
+    <div class="escenario" id="escenario">
+      <canvas id="lienzo" aria-label="Escena 3D del flujo: archivo de ventas, coordinador, nodos de procesamiento y consolidación" role="img"></canvas>
+      <div class="rotulos" id="rotulos" aria-hidden="true"></div>
+      <div class="fase" id="fase">En espera<small>Elija los parámetros y ejecute el procesamiento.</small></div>
+      <div class="sin3d">Este navegador no pudo iniciar la vista 3D. El procesamiento y los resultados funcionan igual.</div>
+      <div class="mandos">
+        <button type="button" id="b-izq" aria-label="Girar la escena a la izquierda">←</button>
+        <button type="button" id="b-der" aria-label="Girar la escena a la derecha">→</button>
+        <button type="button" id="b-pausa" aria-pressed="false">Pausar</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="resultados" class="oculto">
+    <section class="cifras" aria-label="Resumen de la ejecución">
+      <div class="cifra aparece"><div class="n neutra" id="k-ts">0</div><div class="q">Tiempo secuencial</div><div class="d">Un solo proceso</div></div>
+      <div class="cifra aparece"><div class="n neutra" id="k-tp">0</div><div class="q">Tiempo por particiones</div><div class="d" id="k-tp-d"></div></div>
+      <div class="cifra aparece"><div class="n" id="k-ac">0</div><div class="q">Aceleración (Ts&nbsp;/&nbsp;Tp)</div><div class="d" id="k-ac-d"></div></div>
+      <div class="cifra aparece"><div class="n" id="k-ok"></div><div class="q">Consolidado frente a secuencial</div><div class="d" id="k-ok-d"></div></div>
+    </section>
+
+    <div class="rejilla">
+      <div class="dos">
+        <section class="panel aparece" aria-labelledby="t-part">
+          <h2 id="t-part">Resultados parciales por partición</h2>
+          <div class="desliza"><table>
+            <thead><tr><th scope="col">Partición</th><th scope="col">Registros</th><th scope="col">Ingresos</th><th scope="col">Tiempo (s)</th></tr></thead>
+            <tbody id="tb-part"></tbody>
+            <tfoot><tr><td>Consolidado</td><td id="tf-reg"></td><td id="tf-ing"></td><td></td></tr></tfoot>
+          </table></div>
+        </section>
+        <section class="panel aparece" aria-labelledby="t-reg">
+          <h2 id="t-reg">Registro del coordinador</h2>
+          <ol class="registro" id="registro"></ol>
+          <p class="pie" id="archivo"></p>
+        </section>
+      </div>
+      <div class="dos">
+        <section class="panel aparece" aria-labelledby="t-ciu">
+          <h2 id="t-ciu">Ingresos por ciudad, en millones de pesos</h2>
+          <div class="barras" id="g-ciudades"></div>
+        </section>
+        <section class="panel aparece" aria-labelledby="t-top">
+          <h2 id="t-top">Cinco productos con más unidades vendidas</h2>
+          <div class="barras" id="g-top"></div>
+        </section>
+      </div>
+      <section class="panel aparece" aria-labelledby="t-mes">
+        <h2 id="t-mes">Ingresos por mes, en miles de millones de pesos</h2>
+        <div class="columnas" id="g-meses"></div>
+      </section>
+    </div>
+  </div>
+
+  <section class="panel oculto" id="rendimiento" aria-labelledby="t-rend" style="margin-top:24px">
+    <h2 id="t-rend">Pruebas de rendimiento</h2>
+    <div class="desliza"><table>
+      <thead><tr><th scope="col">Registros</th><th scope="col">Ts secuencial (s)</th><th scope="col">Tp particiones (s)</th><th scope="col">Aceleración</th><th scope="col">Resultado igual</th></tr></thead>
+      <tbody id="tb-rend"></tbody>
+    </table></div>
+    <p class="pie" id="rend-nota"></p>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const REDUCIDO = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const nf = (min, max) => new Intl.NumberFormat("es-CO", {minimumFractionDigits: min, maximumFractionDigits: max});
+const miles = n => nf(0, 0).format(Math.round(n));
+const seg = x => nf(3, 3).format(x);
+const dec = x => nf(2, 2).format(x);
+const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+const SIN_CONEXION = "No hay conexión con el programa. Verifique que interfaz.py siga abierto en la terminal y vuelva a intentar.";
+
+function opcionesFallo() {
+  const n = Number($("particiones").value), sel = $("fallar"), previo = sel.value;
+  sel.replaceChildren(new Option("Ninguno", ""));
+  for (let i = 0; i < n; i++) sel.add(new Option("Partición " + i, String(i)));
+  if ([...sel.options].some(o => o.value === previo)) sel.value = previo;
+  window.escena?.preparar(n);
+  if (!$("b-ejecutar").disabled) fase("En espera", "Elija los parámetros y ejecute el procesamiento.");
+}
+$("particiones").addEventListener("change", opcionesFallo);
+
+function estado(texto, error) { const e = $("estado"); e.className = error ? "error" : ""; e.textContent = texto; }
+function fase(titulo, detalle) {
+  const f = $("fase"); f.replaceChildren(titulo);
+  if (detalle) { const s = document.createElement("small"); s.textContent = detalle; f.append(s); }
+}
+function ocupado(si) { $("b-ejecutar").disabled = si; $("b-rendimiento").disabled = si; }
+
+async function pedir(ruta, cuerpo) {
+  let r;
+  try { r = await fetch(ruta, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(cuerpo)}); }
+  catch { throw new Error(SIN_CONEXION); }
+  const datos = await r.json();
+  if (!r.ok) throw new Error(datos.error || "El programa devolvió un error. Revise la terminal.");
+  return datos;
+}
+
+function contar(el, hasta, formato, sufijo = "") {
+  if (REDUCIDO) { el.textContent = formato(hasta) + sufijo; return; }
+  const t0 = performance.now(), dur = 900;
+  const paso = t => {
+    const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+    el.textContent = formato(hasta * e) + sufijo;
+    if (k < 1) requestAnimationFrame(paso);
+  };
+  requestAnimationFrame(paso);
+}
+function celdas(valores) {
+  const tr = document.createElement("tr");
+  valores.forEach(v => { const td = document.createElement("td"); td.textContent = v; tr.append(td); });
+  return tr;
+}
+function lineaRegistro(texto) {
+  const li = document.createElement("li"); li.textContent = texto.charAt(0).toUpperCase() + texto.slice(1);
+  if (texto.includes("FALLÓ")) li.className = "fallo";
+  $("registro").append(li);
+}
+function barras(id, pares, formato) {
+  const max = Math.max(...pares.map(p => p[1]));
+  $(id).replaceChildren(...pares.map(([nombre, valor]) => {
+    const f = document.createElement("div"); f.className = "fb";
+    const n = document.createElement("div"); n.className = "nom"; n.textContent = nombre; n.title = nombre;
+    const v = document.createElement("div"); v.className = "via";
+    const i = document.createElement("i"); i.dataset.escala = (valor / max).toFixed(4); v.append(i);
+    const c = document.createElement("div"); c.className = "val"; c.textContent = formato(valor);
+    f.append(n, v, c); return f;
+  }));
+}
+function columnas(id, pares) {
+  const max = Math.max(...pares.map(p => p[1]));
+  $(id).replaceChildren(...pares.map(([nombre, valor]) => {
+    const c = document.createElement("div"); c.className = "col" + (valor === max ? " max" : "");
+    const v = document.createElement("div"); v.className = "val"; v.textContent = nf(1, 1).format(valor / 1e9);
+    const via = document.createElement("div"); via.className = "via";
+    const i = document.createElement("i"); i.style.height = (valor / max * 100).toFixed(1) + "%"; i.dataset.escala = "1"; via.append(i);
+    const n = document.createElement("div"); n.className = "nom"; n.textContent = nombre;
+    c.append(v, via, n); return c;
+  }));
+}
+function crecer(raiz) {
+  raiz.querySelectorAll("i[data-escala]").forEach((i, k) => {
+    const eje = i.closest(".col") ? "scaleY" : "scaleX";
+    i.style.transitionDelay = REDUCIDO ? "0s" : (k * 45) + "ms";
+    requestAnimationFrame(() => requestAnimationFrame(() => { i.style.transform = eje + "(" + i.dataset.escala + ")"; }));
+  });
+}
+const observador = new IntersectionObserver(entradas => entradas.forEach(e => {
+  if (!e.isIntersecting) return;
+  e.target.classList.add("visto"); crecer(e.target); observador.unobserve(e.target);
+}), {threshold: 0.15});
+
+function pintar(d) {
+  $("k-tp-d").textContent = d.particiones + " procesos en " + d.nucleos + " núcleos lógicos";
+  $("k-ac-d").textContent = d.aceleracion > 1 ? "La versión por particiones fue más rápida" : "La versión secuencial fue más rápida";
+  $("k-ac").className = "n" + (d.aceleracion > 1 ? "" : " neutra");
+  const ok = $("k-ok"); ok.textContent = d.coincide ? "Igual" : "Distinto"; ok.className = "n" + (d.coincide ? "" : " mal");
+  $("k-ok-d").textContent = miles(d.registros) + " registros procesados";
+  $("tb-part").replaceChildren(...d.parciales.map(p => celdas(["Partición " + p.particion, miles(p.registros), "$" + miles(p.ingresos), seg(p.segundos)])));
+  $("tf-reg").textContent = miles(d.registros);
+  $("tf-ing").textContent = "$" + miles(d.ciudades.reduce((s, c) => s + c[1], 0));
+  $("archivo").textContent = "Fuente de datos: " + d.archivo + " (" + dec(d.tamano_mb) + " MB). Los reportes quedan en la carpeta resultados.";
+  barras("g-ciudades", d.ciudades, v => miles(v / 1e6));
+  barras("g-top", d.top, miles);
+  columnas("g-meses", d.meses.map(([m, v]) => [MESES[Number(m.slice(5, 7)) - 1], v]));
+  const r = $("resultados"); r.classList.remove("oculto");
+  r.querySelectorAll(".aparece").forEach((el, i) => { el.classList.remove("visto"); el.style.transitionDelay = REDUCIDO ? "0s" : (Math.min(i, 4) * 80) + "ms"; observador.observe(el); });
+  contar($("k-ts"), d.t_secuencial, seg, " s");
+  contar($("k-tp"), d.t_particiones, seg, " s");
+  contar($("k-ac"), d.aceleracion, dec);
+}
+
+$("formulario").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const f = $("fallar").value, n = Number($("particiones").value);
+  ocupado(true); estado("Procesando las ventas…");
+  $("registro").replaceChildren();
+  fase("Procesando…", "La escena se detiene mientras se mide, para no alterar los tiempos.");
+  window.escena?.preparar(n); window.escena?.esperar();
+  try {
+    const d = await pedir("/api/ejecutar", {registros: Number($("registros").value), particiones: n, fallar: f === "" ? null : Number(f)});
+    const pasos = {fase, registro: lineaRegistro};
+    if (window.escena) { estado("Reproduciendo la ejecución en la escena…"); await window.escena.reproducir(d, pasos); }
+    else { d.eventos.forEach(lineaRegistro); fase("Resultado consolidado", "El consolidado " + (d.coincide ? "coincide" : "no coincide") + " con el secuencial."); }
+    pintar(d);
+    estado("Ejecución terminada. Los resultados están debajo.");
+  } catch (e) { estado(e.message, true); fase("Sin resultado", "La ejecución no terminó."); window.escena?.detener(); }
+  ocupado(false);
+});
+
+$("b-rendimiento").addEventListener("click", async () => {
+  ocupado(true); estado("Midiendo 10.000, 100.000 y 500.000 registros, tres repeticiones cada uno…");
+  try {
+    const d = await pedir("/api/rendimiento", {tamanos: [10000, 100000, 500000], particiones: Number($("particiones").value)});
+    $("tb-rend").replaceChildren(...d.filas.map(f => celdas([miles(f.registros), seg(f.t_secuencial), seg(f.t_particiones), dec(f.aceleracion), f.coincide ? "Sí" : "No"])));
+    $("rend-nota").textContent = "Mediana de " + d.repeticiones + " repeticiones con " + d.particiones + " particiones en un equipo de " + d.nucleos + " núcleos lógicos. Una aceleración mayor que 1 indica que la versión por particiones fue más rápida.";
+    $("rendimiento").classList.remove("oculto");
+    $("rendimiento").scrollIntoView({behavior: REDUCIDO ? "auto" : "smooth", block: "start"});
+    estado("Pruebas de rendimiento terminadas.");
+  } catch (e) { estado(e.message, true); }
+  ocupado(false);
+});
+opcionesFallo();
+</script>
+
+<script type="module">
+// Escena 3D. Si Three.js o WebGL no están disponibles, la página funciona sin ella.
+let THREE;
+try { THREE = await import("./vendor/three.module.min.js"); } catch { document.getElementById("escenario").classList.add("plano"); }
+if (THREE) try { iniciar(); } catch (e) { console.warn(e); document.getElementById("escenario").classList.add("plano"); }
+
+function iniciar() {
+  const REDUCIDO = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const caja = document.getElementById("escenario"), lienzo = document.getElementById("lienzo"), capa = document.getElementById("rotulos");
+  const C = {acento: 0xfaff69, base: 0x242424, borde: 0x4a4a4a, tinta: 0xffffff, error: 0xef4444, ok: 0x22c55e, hoja: 0x2e2e2e};
+  const render = new THREE.WebGLRenderer({canvas: lienzo, antialias: true, alpha: true});
+  render.setPixelRatio(Math.min(devicePixelRatio, 2));
+  const escena = new THREE.Scene();
+  const camara = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
+  const mundo = new THREE.Group(); escena.add(mundo);
+  escena.add(new THREE.AmbientLight(0xffffff, 0.75));
+  const sol = new THREE.DirectionalLight(0xffffff, 1.6); sol.position.set(4, 9, 6); escena.add(sol);
+
+  const P = {origen: new THREE.Vector3(-5.6, 0.6, 0), coord: new THREE.Vector3(-2.5, 1.1, 0), consol: new THREE.Vector3(4.7, 0.2, 0)};
+  const mat = (color, extra = {}) => new THREE.MeshStandardMaterial({color, roughness: 0.6, metalness: 0.1, ...extra});
+  const aristas = (geo, color = C.borde) => new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color}));
+
+  // Piso de puntos
+  const pts = [];
+  for (let x = -9; x <= 9; x += 0.75) for (let z = -6; z <= 6; z += 0.75) pts.push(x, -0.02, z);
+  const piso = new THREE.Points(new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(pts, 3)),
+    new THREE.PointsMaterial({color: 0x3a3a3a, size: 0.045}));
+  mundo.add(piso);
+
+  // Archivo de origen: pila de hojas
+  const pila = new THREE.Group(); pila.position.copy(P.origen); pila.position.y = 0;
+  for (let i = 0; i < 6; i++) {
+    const g = new THREE.BoxGeometry(1.5, 0.12, 1.9);
+    const h = new THREE.Mesh(g, mat(i === 5 ? 0x3a3a3a : C.hoja)); h.position.y = 0.08 + i * 0.19; h.add(aristas(g)); pila.add(h);
+  }
+  mundo.add(pila);
+
+  // Coordinador
+  const gCoord = new THREE.IcosahedronGeometry(0.85, 0);
+  const coord = new THREE.Mesh(gCoord, mat(C.base, {flatShading: true})); coord.position.copy(P.coord);
+  coord.add(aristas(gCoord, C.acento)); mundo.add(coord);
+
+  // Plataforma de consolidación con barras de resultado
+  const gPlat = new THREE.BoxGeometry(3.4, 0.3, 4.2);
+  const plat = new THREE.Mesh(gPlat, mat(C.base)); plat.position.copy(P.consol); plat.add(aristas(gPlat)); mundo.add(plat);
+  const barrasR = [];
+  for (let i = 0; i < 8; i++) {
+    const g = new THREE.BoxGeometry(0.5, 1, 0.5); g.translate(0, 0.5, 0);
+    const b = new THREE.Mesh(g, mat(i === 0 ? C.acento : C.tinta, i === 0 ? {emissive: C.acento, emissiveIntensity: 0.25} : {}));
+    b.position.set(P.consol.x - 1.05 + (i % 4) * 0.7, P.consol.y + 0.15, -0.45 + Math.floor(i / 4) * 0.9);
+    b.scale.y = 0.001; b.visible = false; mundo.add(b); barrasR.push(b);
+  }
+
+  // Nodos (se reconstruyen según el número de particiones)
+  const grupoNodos = new THREE.Group(); mundo.add(grupoNodos);
+  let nodos = [], conexiones = new THREE.Group(); mundo.add(conexiones);
+  const rotulos = [];
+  function rotulo(texto, punto, dy = 0) {
+    const s = document.createElement("span"); s.textContent = texto; capa.append(s);
+    const r = {s, punto, dy}; rotulos.push(r); return r;
+  }
+  const rOrigen = rotulo("ventas.csv", new THREE.Vector3(P.origen.x, 1.5, 0));
+  rotulo("Coordinador", new THREE.Vector3(P.coord.x, 2.25, 0));
+  rotulo("Consolidación", new THREE.Vector3(P.consol.x, 0.2, 2.6));
+  let rotulosNodo = [], nombreOrigen = "ventas.csv";
+
+  function linea(a, b) {
+    const g = new THREE.BufferGeometry().setFromPoints([a, b]);
+    return new THREE.Line(g, new THREE.LineBasicMaterial({color: 0x333333}));
+  }
+  function preparar(n) {
+    if (ocupada) return;
+    grupoNodos.clear(); conexiones.clear();
+    rotulosNodo.forEach(r => { r.s.remove(); rotulos.splice(rotulos.indexOf(r), 1); }); rotulosNodo = [];
+    nodos = [];
+    const paso = n <= 4 ? 1.75 : n <= 6 ? 1.35 : 1.12, lado = n <= 4 ? 1.05 : n <= 6 ? 0.85 : 0.72;
+    for (let i = 0; i < n; i++) {
+      const z = (i - (n - 1) / 2) * paso, g = new THREE.BoxGeometry(lado, lado, lado);
+      const cuerpo = new THREE.Mesh(g, mat(C.base, {transparent: true, opacity: 0.55}));
+      const borde = aristas(g); cuerpo.add(borde);
+      const gi = new THREE.BoxGeometry(lado * 0.72, lado * 0.9, lado * 0.72); gi.translate(0, lado * 0.45, 0);
+      const carga = new THREE.Mesh(gi, mat(C.acento, {emissive: C.acento, emissiveIntensity: 0.35}));
+      carga.position.y = -lado * 0.45; carga.scale.y = 0.001; carga.visible = false; cuerpo.add(carga);
+      cuerpo.position.set(1.1, lado / 2 + 0.05, z); grupoNodos.add(cuerpo);
+      const pos = cuerpo.position.clone();
+      nodos.push({cuerpo, borde, carga, pos, lado});
+      conexiones.add(linea(P.coord, pos), linea(pos, new THREE.Vector3(P.consol.x - 1.7, 0.35, z * 0.35)));
+      rotulosNodo.push(rotulo(n <= 4 ? "Nodo " + i : String(i), new THREE.Vector3(1.1, lado + 0.5, z - lado * 0.2)));
+    }
+    conexiones.add(linea(new THREE.Vector3(P.origen.x + 0.8, 0.6, 0), P.coord));
+    barrasR.forEach(b => { b.visible = false; b.scale.y = 0.001; });
+    sucio = true;
+  }
+
+  // Partículas de datos
+  const MAXP = 420, gp = new THREE.BoxGeometry(0.11, 0.11, 0.11);
+  const particulas = new THREE.InstancedMesh(gp, new THREE.MeshBasicMaterial({color: 0xffffff}), MAXP);
+  particulas.instanceMatrix.setUsage(THREE.DynamicDrawUsage); mundo.add(particulas);
+  const vivas = [], aux = new THREE.Object3D(), tinte = new THREE.Color();
+  function emitir(a, b, cuantas, duracion, color = C.acento, dispersion = 0.35) {
+    for (let i = 0; i < cuantas && vivas.length < MAXP; i++) {
+      const j = () => (Math.random() - 0.5) * dispersion;
+      const de = a.clone().add(new THREE.Vector3(j(), j(), j())), hasta = b.clone().add(new THREE.Vector3(j(), j(), j()));
+      const medio = de.clone().lerp(hasta, 0.5); medio.y += 0.9 + Math.random() * 0.7;
+      vivas.push({de, medio, hasta, t: -Math.random() * duracion * 0.7, dur: duracion * 0.45, color});
+    }
+  }
+  function moverParticulas(dt) {
+    for (let i = vivas.length - 1; i >= 0; i--) { vivas[i].t += dt; if (vivas[i].t > vivas[i].dur) vivas.splice(i, 1); }
+    for (let i = 0; i < MAXP; i++) {
+      const p = vivas[i];
+      if (!p || p.t < 0) { aux.scale.setScalar(0); }
+      else {
+        const k = p.t / p.dur, u = 1 - k;
+        aux.position.set(u * u * p.de.x + 2 * u * k * p.medio.x + k * k * p.hasta.x, u * u * p.de.y + 2 * u * k * p.medio.y + k * k * p.hasta.y, u * u * p.de.z + 2 * u * k * p.medio.z + k * k * p.hasta.z);
+        aux.scale.setScalar(Math.sin(Math.PI * k) * 0.9 + 0.35); aux.rotation.set(k * 4, k * 3, 0);
+        particulas.setColorAt(i, tinte.set(p.color));
+      }
+      aux.updateMatrix(); particulas.setMatrixAt(i, aux.matrix);
+    }
+    particulas.instanceMatrix.needsUpdate = true; if (particulas.instanceColor) particulas.instanceColor.needsUpdate = true;
+  }
+
+  // Reloj propio (se detiene con Pausar) y animaciones por tramo
+  let congelada = false, reloj = 0, pausada = false, ocupada = false, esperando = false, sucio = true, giro = -0.18, giroMeta = -0.18, serie = 0;
+  const tramos = [];
+  const suave = k => 1 - Math.pow(1 - k, 3);
+  function tramo(segundos, fn) {
+    if (REDUCIDO) { fn?.(1); return Promise.resolve(); }
+    return new Promise(listo => tramos.push({t0: reloj, dur: segundos, fn, listo, serie}));
+  }
+  function carga(n, k, color) {
+    n.carga.visible = k > 0.002; n.carga.scale.y = Math.max(0.001, k);
+    if (color !== undefined) { n.carga.material.color.set(color); n.carga.material.emissive.set(color); }
+  }
+
+  async function reproducir(d, pasos) {
+    congelada = false; ocupada = false; preparar(d.particiones); ocupada = true; esperando = false; const mia = ++serie;
+    const vigente = () => mia === serie;
+    nombreOrigen = d.archivo.split("/").pop(); rOrigen.s.textContent = caja.clientWidth < 520 ? "CSV" : nombreOrigen;
+    const porIntento = {};
+    d.eventos.forEach(e => { const m = e.match(/intento (\d+): partición (\d+) (FALLÓ|entregó)/); if (m) (porIntento[m[1]] ??= []).push({i: Number(m[2]), fallo: m[3] === "FALLÓ", texto: e}); });
+    const intentos = Object.keys(porIntento).map(Number).sort((a, b) => a - b);
+
+    pasos.fase("Particionando el archivo", d.particiones + " rangos de bytes de tamaño similar.");
+    emitir(new THREE.Vector3(P.origen.x, 1.2, 0), P.coord, 46, 1.2, C.tinta);
+    await tramo(1.3, k => { coord.scale.setScalar(1 + 0.12 * Math.sin(k * Math.PI)); });
+
+    for (const intento of intentos) {
+      if (!vigente()) return;
+      const grupo = porIntento[intento];
+      if (intento === 1) pasos.fase("Intento 1: cada proceso lee su rango", d.particiones + " procesos independientes resumen sus ventas.");
+      else pasos.fase("El coordinador relanza la partición " + grupo.map(g => g.i).join(", "), "No entregó su parcial en el intento anterior.");
+      grupo.forEach(g => { const n = nodos[g.i]; carga(n, 0, C.acento); n.borde.material.color.set(C.borde); emitir(P.coord, n.pos, intento === 1 ? 20 : 34, 2.0, C.tinta); });
+      if (intento > 1) rotulosNodo.forEach(r => r.s.classList.remove("fallo"));
+      await tramo(2.3, k => grupo.forEach(g => {
+        const n = nodos[g.i];
+        if (!g.fallo) carga(n, suave(k));
+        else if (k < 0.68) carga(n, suave(k));
+        else { carga(n, suave(0.68) * (1 - (k - 0.68) / 0.32), C.error); n.borde.material.color.set(C.error); n.cuerpo.position.x = n.pos.x + Math.sin(k * 70) * 0.06 * (1 - k); }
+      }));
+      grupo.forEach(g => {
+        const n = nodos[g.i]; n.cuerpo.position.x = n.pos.x;
+        if (g.fallo) { carga(n, 0); rotulosNodo[g.i].s.classList.add("fallo"); } else n.borde.material.color.set(C.ok);
+        pasos.registro(g.texto);
+      });
+      await tramo(0.7);
+    }
+    if (!vigente()) return;
+
+    pasos.fase("Consolidación", "El coordinador suma los parciales clave por clave.");
+    nodos.forEach(n => emitir(n.pos, new THREE.Vector3(P.consol.x, 0.6, n.pos.z * 0.3), 16, 1.5, C.acento));
+    await tramo(1.6, k => nodos.forEach(n => carga(n, 1 - suave(k))));
+    nodos.forEach(n => n.borde.material.color.set(C.borde));
+
+    if (!vigente()) return;
+    pasos.fase("Resultado consolidado", d.coincide ? "Coincide con la ejecución secuencial." : "No coincide con la ejecución secuencial.");
+    const max = Math.max(...d.ciudades.map(c => c[1]));
+    barrasR.forEach((b, i) => { b.visible = i < d.ciudades.length; });
+    await tramo(1.1, k => barrasR.forEach((b, i) => { if (d.ciudades[i]) b.scale.y = Math.max(0.001, suave(Math.min(1, k * 1.5 - i * 0.05)) * 2.4 * d.ciudades[i][1] / max); }));
+    ocupada = false;
+  }
+  function detener() { congelada = false; serie++; ocupada = false; esperando = false; vivas.length = 0; tramos.length = 0; sucio = true; }
+
+  // Cámara, tamaño y rótulos
+  function ajustar() {
+    const w = caja.clientWidth, h = caja.clientHeight; if (!w || !h) return;
+    render.setSize(w, h, false); camara.aspect = w / h; rOrigen.s.textContent = w < 520 ? "CSV" : nombreOrigen;
+    const medio = 7.3, dist = Math.max(9, medio / (Math.tan(THREE.MathUtils.degToRad(camara.fov / 2)) * camara.aspect));
+    camara.position.set(0, dist * 0.78, dist * 0.7); camara.lookAt(0, 0.2, 0.3); camara.updateProjectionMatrix(); sucio = true;
+  }
+  new ResizeObserver(ajustar).observe(caja);
+  const v = new THREE.Vector3();
+  function colocarRotulos() {
+    const w = caja.clientWidth, h = caja.clientHeight;
+    rotulos.forEach(r => {
+      v.copy(r.punto).applyMatrix4(mundo.matrixWorld).project(camara);
+      const x = (v.x * 0.5 + 0.5) * w, y = (-v.y * 0.5 + 0.5) * h;
+      r.s.style.transform = "translate(" + x.toFixed(1) + "px," + y.toFixed(1) + "px) translate(-50%,-50%)";
+    });
+  }
+
+  // Giro: arrastre, botones y teclado
+  let arrastre = null;
+  lienzo.addEventListener("pointerdown", e => { arrastre = {x: e.clientX, g: giroMeta}; lienzo.setPointerCapture(e.pointerId); });
+  lienzo.addEventListener("pointermove", e => { if (arrastre) { giroMeta = THREE.MathUtils.clamp(arrastre.g + (e.clientX - arrastre.x) * 0.006, -1.2, 1.2); sucio = true; } });
+  ["pointerup", "pointercancel"].forEach(t => lienzo.addEventListener(t, () => { arrastre = null; }));
+  const girar = d => { giroMeta = THREE.MathUtils.clamp(giroMeta + d, -1.2, 1.2); sucio = true; };
+  document.getElementById("b-izq").addEventListener("click", () => girar(-0.3));
+  document.getElementById("b-der").addEventListener("click", () => girar(0.3));
+  const bPausa = document.getElementById("b-pausa");
+  bPausa.addEventListener("click", () => { pausada = !pausada; bPausa.textContent = pausada ? "Reanudar" : "Pausar"; bPausa.setAttribute("aria-pressed", String(pausada)); });
+  if (REDUCIDO) bPausa.hidden = true;
+
+  let previo = performance.now();
+  function cuadro(ahora) {
+    requestAnimationFrame(cuadro);
+    const dt = Math.min(0.05, (ahora - previo) / 1000); previo = ahora;
+    if (document.hidden || congelada) return;
+    const animando = !pausada && !REDUCIDO;
+    if (animando) {
+      reloj += dt;
+      coord.rotation.y += dt * (ocupada || esperando ? 1.6 : 0.35); coord.rotation.x += dt * 0.12;
+      coord.position.y = P.coord.y + Math.sin(reloj * 1.3) * 0.08;
+      for (let i = tramos.length - 1; i >= 0; i--) {
+        const t = tramos[i];
+        if (t.serie !== serie) { tramos.splice(i, 1); t.listo(); continue; }
+        const k = Math.min(1, (reloj - t.t0) / t.dur); t.fn?.(k);
+        if (k >= 1) { tramos.splice(i, 1); t.listo(); }
+      }
+      moverParticulas(dt);
+    }
+    if (Math.abs(giroMeta - giro) > 0.0005) { giro += (giroMeta - giro) * Math.min(1, dt * 8); sucio = true; }
+    if (animando || sucio) { mundo.rotation.y = giro; mundo.updateMatrixWorld(); render.render(escena, camara); colocarRotulos(); sucio = false; }
+  }
+  preparar(Number(document.getElementById("particiones").value));
+  ajustar(); requestAnimationFrame(cuadro);
+  window.escena = {preparar, reproducir, detener, esperar() { congelada = true; }};
+}
+</script>
+</body>
+</html>
