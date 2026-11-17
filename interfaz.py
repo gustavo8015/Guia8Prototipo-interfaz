@@ -6,9 +6,11 @@ particiones, se ejecuta el procesamiento y se ven los resultados.
 
 Uso:
     python interfaz.py
+    python interfaz.py --puerto 9000
 
 Para cerrarla: Ctrl + C en la terminal.
 """
+import argparse
 import json
 import os
 import statistics
@@ -150,16 +152,27 @@ class Manejador(BaseHTTPRequestHandler):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Interfaz web local del prototipo.")
+    parser.add_argument("--puerto", type=int, default=8000,
+                        help="puerto donde se abre la interfaz (por defecto 8000)")
+    args = parser.parse_args()
+    if not 1024 <= args.puerto <= 65525:
+        raise SystemExit("El puerto debe estar entre 1024 y 65525.")
+
     os.chdir(CARPETA)  # datos/, parciales/ y resultados/ quedan junto a los scripts
     servidor = None
-    for puerto in range(8000, 8011):
+    # Si el puerto pedido está ocupado se prueban los diez siguientes.
+    for puerto in range(args.puerto, args.puerto + 11):
         try:
             servidor = ThreadingHTTPServer(("127.0.0.1", puerto), Manejador)
             break
         except OSError:
             continue
     if servidor is None:
-        raise SystemExit("No hay un puerto libre entre 8000 y 8010.")
+        raise SystemExit(f"No hay un puerto libre entre {args.puerto} y {args.puerto + 10}. "
+                         "Indique otro con --puerto.")
+    if puerto != args.puerto:
+        print(f"El puerto {args.puerto} está ocupado; se usa el {puerto}.")
     url = f"http://127.0.0.1:{puerto}"
     print(f"Interfaz disponible en {url}")
     print("Para cerrarla presione Ctrl + C en esta ventana.")

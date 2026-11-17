@@ -25,9 +25,10 @@ no un clúster real.
 
 ```
 python interfaz.py
+python interfaz.py --puerto 9000   # si el 8000 ya está en uso
 ```
 
-Se abre el navegador en http://127.0.0.1:8000. Allí se eligen los
+Se abre el navegador en http://127.0.0.1:8000 (o en el puerto indicado). Allí se eligen los
 registros y las particiones y se puede simular la caída de un proceso.
 Una escena 3D reproduce la ejecución real (particionamiento, lectura de
 cada nodo, fallo y relanzamiento, consolidación) y debajo aparecen los
